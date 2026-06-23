@@ -1,6 +1,7 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useImageEditor } from '../hooks/useImageEditor'
 import { CanvasViewport } from './CanvasViewport'
+import { HistoryPanel } from './HistoryPanel'
 import { Toolbar } from './Toolbar'
 import { BackgroundPanel } from '../panels/BackgroundPanel'
 import { ExportPanel } from '../panels/ExportPanel'
@@ -13,7 +14,9 @@ export function ImageEditor() {
     fileName,
     tool,
     cropRect,
-    historyLength,
+    historyEntries,
+    currentHistoryIndex,
+    canUndo,
     isProcessing,
     bgProgress,
     error,
@@ -25,8 +28,24 @@ export function ImageEditor() {
     applyResize,
     removeBackground,
     undo,
+    restoreTo,
+    restoreOriginal,
     clearError,
   } = useImageEditor()
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        if (canUndo && !isProcessing) {
+          undo()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [canUndo, isProcessing, undo])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -71,7 +90,7 @@ export function ImageEditor() {
           <button
             type="button"
             className="secondary-button"
-            disabled={!canvas || historyLength === 0 || isProcessing}
+            disabled={!canvas || !canUndo || isProcessing}
             onClick={undo}
           >
             Deshacer
@@ -119,6 +138,14 @@ export function ImageEditor() {
               showCrop={tool === 'crop'}
               cropRect={cropRect}
               onCropChange={setCropRect}
+            />
+
+            <HistoryPanel
+              entries={historyEntries}
+              currentIndex={currentHistoryIndex}
+              disabled={isProcessing}
+              onSelect={restoreTo}
+              onRestoreOriginal={restoreOriginal}
             />
           </section>
 

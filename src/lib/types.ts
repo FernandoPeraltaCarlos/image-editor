@@ -13,3 +13,9 @@ export interface ImageDimensions {
   width: number
   height: number
 }
+
+export interface HistoryEntry {
+  label: string
+  width: number
+  height: number
+}

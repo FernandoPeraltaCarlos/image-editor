@@ -6,16 +6,20 @@ import {
   type RemoveBackgroundProgress,
 } from '../lib/removeBackground'
 import { resizeCanvas } from '../lib/resize'
-import type { ImageRect, Tool } from '../lib/types'
+import type { HistoryEntry, ImageRect, Tool } from '../lib/types'
 
-const MAX_HISTORY = 10
+interface HistorySnapshot {
+  canvas: HTMLCanvasElement
+  label: string
+}
 
 interface EditorState {
   canvas: HTMLCanvasElement | null
   fileName: string
   tool: Tool
   cropRect: ImageRect | null
-  history: HTMLCanvasElement[]
+  snapshots: HistorySnapshot[]
+  currentIndex: number
   isProcessing: boolean
   error: string | null
 }
@@ -30,36 +34,71 @@ type EditorAction =
   | { type: 'REMOVE_BACKGROUND_SUCCESS'; canvas: HTMLCanvasElement }
   | { type: 'REMOVE_BACKGROUND_ERROR'; error: string }
   | { type: 'UNDO' }
+  | { type: 'RESTORE_TO_INDEX'; index: number }
   | { type: 'CLEAR_ERROR' }
 
-function pushHistory(state: EditorState, canvas: HTMLCanvasElement): HTMLCanvasElement[] {
-  const snapshot = cloneCanvas(canvas)
-  const nextHistory = [...state.history, snapshot]
-  return nextHistory.slice(-MAX_HISTORY)
+function createSnapshot(canvas: HTMLCanvasElement, label: string): HistorySnapshot {
+  return {
+    canvas: cloneCanvas(canvas),
+    label,
+  }
+}
+
+function commitChange(
+  state: EditorState,
+  canvas: HTMLCanvasElement,
+  label: string,
+): EditorState {
+  const snapshots = state.snapshots.slice(0, state.currentIndex + 1)
+  snapshots.push(createSnapshot(canvas, label))
+
+  return {
+    ...state,
+    canvas,
+    snapshots,
+    currentIndex: snapshots.length - 1,
+    cropRect: defaultCropRect(canvas.width, canvas.height),
+    error: null,
+  }
+}
+
+function restoreToIndex(state: EditorState, index: number): EditorState {
+  const snapshot = state.snapshots[index]
+  if (!snapshot) {
+    return state
+  }
+
+  return {
+    ...state,
+    canvas: cloneCanvas(snapshot.canvas),
+    currentIndex: index,
+    cropRect: defaultCropRect(snapshot.canvas.width, snapshot.canvas.height),
+    error: null,
+  }
 }
 
 function reducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
-    case 'LOAD_IMAGE':
+    case 'LOAD_IMAGE': {
+      const snapshot = createSnapshot(action.canvas, 'Imagen original')
+
       return {
         ...state,
-        canvas: action.canvas,
+        canvas: cloneCanvas(action.canvas),
         fileName: action.fileName,
         tool: 'crop',
         cropRect: defaultCropRect(action.canvas.width, action.canvas.height),
-        history: [],
+        snapshots: [snapshot],
+        currentIndex: 0,
         isProcessing: false,
         error: null,
       }
+    }
 
     case 'SET_TOOL': {
       const next: EditorState = { ...state, tool: action.tool, error: null }
 
-      if (
-        action.tool === 'crop' &&
-        state.canvas &&
-        !state.cropRect
-      ) {
+      if (action.tool === 'crop' && state.canvas && !state.cropRect) {
         next.cropRect = defaultCropRect(state.canvas.width, state.canvas.height)
       }
 
@@ -74,16 +113,8 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
         return state
       }
 
-      const history = pushHistory(state, state.canvas)
       const cropped = cropCanvas(state.canvas, state.cropRect)
-
-      return {
-        ...state,
-        canvas: cropped,
-        history,
-        cropRect: defaultCropRect(cropped.width, cropped.height),
-        error: null,
-      }
+      return commitChange(state, cropped, 'Recorte')
     }
 
     case 'APPLY_RESIZE': {
@@ -91,18 +122,8 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
         return state
       }
 
-      const history = pushHistory(state, state.canvas)
       const resized = resizeCanvas(state.canvas, action.width, action.height)
-
-      return {
-        ...state,
-        canvas: resized,
-        history,
-        cropRect: state.cropRect
-          ? defaultCropRect(resized.width, resized.height)
-          : null,
-        error: null,
-      }
+      return commitChange(state, resized, 'Redimensionar')
     }
 
     case 'REMOVE_BACKGROUND_START':
@@ -114,12 +135,8 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       }
 
       return {
-        ...state,
-        canvas: action.canvas,
-        history: pushHistory(state, state.canvas),
-        cropRect: defaultCropRect(action.canvas.width, action.canvas.height),
+        ...commitChange(state, action.canvas, 'Fondo eliminado'),
         isProcessing: false,
-        error: null,
       }
     }
 
@@ -127,20 +144,23 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, isProcessing: false, error: action.error }
 
     case 'UNDO': {
-      if (state.history.length === 0 || !state.canvas) {
+      if (state.currentIndex <= 0) {
         return state
       }
 
-      const previous = state.history[state.history.length - 1]
-      const history = state.history.slice(0, -1)
+      return restoreToIndex(state, state.currentIndex - 1)
+    }
 
-      return {
-        ...state,
-        canvas: cloneCanvas(previous),
-        history,
-        cropRect: defaultCropRect(previous.width, previous.height),
-        error: null,
+    case 'RESTORE_TO_INDEX': {
+      if (
+        action.index < 0 ||
+        action.index >= state.snapshots.length ||
+        action.index === state.currentIndex
+      ) {
+        return state
       }
+
+      return restoreToIndex(state, action.index)
     }
 
     case 'CLEAR_ERROR':
@@ -156,7 +176,8 @@ const initialState: EditorState = {
   fileName: 'imagen',
   tool: 'crop',
   cropRect: null,
-  history: [],
+  snapshots: [],
+  currentIndex: -1,
   isProcessing: false,
   error: null,
 }
@@ -212,18 +233,34 @@ export function useImageEditor() {
     dispatch({ type: 'UNDO' })
   }, [])
 
+  const restoreTo = useCallback((index: number) => {
+    dispatch({ type: 'RESTORE_TO_INDEX', index })
+  }, [])
+
+  const restoreOriginal = useCallback(() => {
+    dispatch({ type: 'RESTORE_TO_INDEX', index: 0 })
+  }, [])
+
   const clearError = useCallback(() => {
     dispatch({ type: 'CLEAR_ERROR' })
   }, [])
 
   const dimensions = state.canvas ? getCanvasDimensions(state.canvas) : null
 
+  const historyEntries: HistoryEntry[] = state.snapshots.map((snapshot) => ({
+    label: snapshot.label,
+    width: snapshot.canvas.width,
+    height: snapshot.canvas.height,
+  }))
+
   return {
     canvas: state.canvas,
     fileName: state.fileName,
     tool: state.tool,
     cropRect: state.cropRect,
-    historyLength: state.history.length,
+    historyEntries,
+    currentHistoryIndex: state.currentIndex,
+    canUndo: state.currentIndex > 0,
     isProcessing: state.isProcessing,
     bgProgress,
     error: state.error,
@@ -235,6 +272,8 @@ export function useImageEditor() {
     applyResize,
     removeBackground,
     undo,
+    restoreTo,
+    restoreOriginal,
     clearError,
   }
 }

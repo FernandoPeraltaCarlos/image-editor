@@ -6,6 +6,7 @@ interface CanvasViewportProps {
   canvas: HTMLCanvasElement
   showCrop: boolean
   cropRect: ImageRect | null
+  cropAspect: number | null
   onCropChange: (rect: ImageRect) => void
 }
 
@@ -16,6 +17,7 @@ export function CanvasViewport({
   canvas,
   showCrop,
   cropRect,
+  cropAspect,
   onCropChange,
 }: CanvasViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -75,6 +77,7 @@ export function CanvasViewport({
             imageWidth={canvas.width}
             imageHeight={canvas.height}
             scale={scale}
+            aspect={cropAspect}
             onChange={onCropChange}
           />
         ) : null}

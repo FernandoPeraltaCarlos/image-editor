@@ -323,6 +323,19 @@
   margin-bottom: 16px;
 }
 
+.panel__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.panel__actions .secondary-button {
+  padding: 10px 8px;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
 .field {
   display: grid;
   gap: 6px;

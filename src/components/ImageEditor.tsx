@@ -4,6 +4,7 @@ import { CanvasViewport } from './CanvasViewport'
 import { HistoryPanel } from './HistoryPanel'
 import { Toolbar } from './Toolbar'
 import { BackgroundPanel } from '../panels/BackgroundPanel'
+import { CropPanel } from '../panels/CropPanel'
 import { ExportPanel } from '../panels/ExportPanel'
 import { ResizePanel } from '../panels/ResizePanel'
 
@@ -14,6 +15,7 @@ export function ImageEditor() {
     fileName,
     tool,
     cropRect,
+    cropAspect,
     historyEntries,
     currentHistoryIndex,
     canUndo,
@@ -24,6 +26,7 @@ export function ImageEditor() {
     loadFile,
     setTool,
     setCropRect,
+    setCropAspect,
     applyCrop,
     applyResize,
     removeBackground,
@@ -137,6 +140,7 @@ export function ImageEditor() {
               canvas={canvas}
               showCrop={tool === 'crop'}
               cropRect={cropRect}
+              cropAspect={cropAspect}
               onCropChange={setCropRect}
             />
 
@@ -153,24 +157,17 @@ export function ImageEditor() {
             <Toolbar activeTool={tool} disabled={isProcessing} onSelect={setTool} />
 
             <div className="editor__panel">
-              {tool === 'crop' && cropRect ? (
-                <div className="panel">
-                  <h2>Recortar</h2>
-                  <p className="panel__hint">
-                    Arrastra el recuadro o sus esquinas para definir el área. Luego aplica el recorte.
-                  </p>
-                  <p className="panel__meta">
-                    Selección: {Math.round(cropRect.width)} × {Math.round(cropRect.height)} px
-                  </p>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={isProcessing}
-                    onClick={applyCrop}
-                  >
-                    Aplicar recorte
-                  </button>
-                </div>
+              {tool === 'crop' && cropRect && dimensions ? (
+                <CropPanel
+                  rect={cropRect}
+                  imageWidth={dimensions.width}
+                  imageHeight={dimensions.height}
+                  aspect={cropAspect}
+                  disabled={isProcessing}
+                  onChange={setCropRect}
+                  onAspectChange={setCropAspect}
+                  onApply={applyCrop}
+                />
               ) : null}
 
               {tool === 'resize' && dimensions ? (

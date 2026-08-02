@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { fitRectToAspect, type RectAnchor } from '../lib/crop'
 import type { ImageRect } from '../lib/types'
 
 type Handle =
@@ -17,10 +18,31 @@ interface CropOverlayProps {
   imageWidth: number
   imageHeight: number
   scale: number
+  /** Proporción bloqueada (ancho / alto). `null` = redimensionado libre. */
+  aspect: number | null
   onChange: (rect: ImageRect) => void
 }
 
 const HANDLE_SIZE = 10
+
+/**
+ * Con la proporción bloqueada, cada tirador fija el borde opuesto y decide qué
+ * medida manda: las esquinas usan la mayor, los laterales el ancho y los
+ * tiradores superior/inferior el alto (creciendo de forma centrada).
+ */
+const ASPECT_CONSTRAINTS: Record<
+  Exclude<Handle, 'move'>,
+  { anchor: RectAnchor; driver: 'width' | 'height' | 'auto' }
+> = {
+  'top-left': { anchor: { x: 'right', y: 'bottom' }, driver: 'auto' },
+  'top-right': { anchor: { x: 'left', y: 'bottom' }, driver: 'auto' },
+  'bottom-left': { anchor: { x: 'right', y: 'top' }, driver: 'auto' },
+  'bottom-right': { anchor: { x: 'left', y: 'top' }, driver: 'auto' },
+  left: { anchor: { x: 'right', y: 'center' }, driver: 'width' },
+  right: { anchor: { x: 'left', y: 'center' }, driver: 'width' },
+  top: { anchor: { x: 'center', y: 'bottom' }, driver: 'height' },
+  bottom: { anchor: { x: 'center', y: 'top' }, driver: 'height' },
+}
 
 function clampRect(rect: ImageRect, maxWidth: number, maxHeight: number): ImageRect {
   const width = Math.max(1, Math.min(rect.width, maxWidth))
@@ -66,6 +88,7 @@ export function CropOverlay({
   imageWidth,
   imageHeight,
   scale,
+  aspect,
   onChange,
 }: CropOverlayProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -158,6 +181,12 @@ export function CropOverlay({
           break
       }
 
+      if (aspect && drag.handle !== 'move') {
+        const { anchor, driver } = ASPECT_CONSTRAINTS[drag.handle]
+        onChange(fitRectToAspect(next, aspect, anchor, imageWidth, imageHeight, driver))
+        return
+      }
+
       onChange(clampRect(next, imageWidth, imageHeight))
     }
 
@@ -173,7 +202,7 @@ export function CropOverlay({
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
     }
-  }, [imageHeight, imageWidth, onChange, scale])
+  }, [aspect, imageHeight, imageWidth, onChange, scale])
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const overlay = overlayRef.current

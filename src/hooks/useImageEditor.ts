@@ -1,5 +1,5 @@
 import { useCallback, useReducer, useState } from 'react'
-import { defaultCropRect, cropCanvas } from '../lib/crop'
+import { defaultCropRect, cropCanvas, fitRectToAspect } from '../lib/crop'
 import { cloneCanvas, getCanvasDimensions, loadImageFromFile } from '../lib/imageCanvas'
 import {
   removeBackgroundFromCanvas,
@@ -18,6 +18,8 @@ interface EditorState {
   fileName: string
   tool: Tool
   cropRect: ImageRect | null
+  /** Proporción bloqueada del recorte (ancho / alto). `null` = selección libre. */
+  cropAspect: number | null
   snapshots: HistorySnapshot[]
   currentIndex: number
   isProcessing: boolean
@@ -28,6 +30,7 @@ type EditorAction =
   | { type: 'LOAD_IMAGE'; canvas: HTMLCanvasElement; fileName: string }
   | { type: 'SET_TOOL'; tool: Tool }
   | { type: 'SET_CROP_RECT'; cropRect: ImageRect }
+  | { type: 'SET_CROP_ASPECT'; aspect: number | null }
   | { type: 'APPLY_CROP' }
   | { type: 'APPLY_RESIZE'; width: number; height: number }
   | { type: 'REMOVE_BACKGROUND_START' }
@@ -36,6 +39,21 @@ type EditorAction =
   | { type: 'UNDO' }
   | { type: 'RESTORE_TO_INDEX'; index: number }
   | { type: 'CLEAR_ERROR' }
+
+/** Selección inicial para un lienzo, respetando la proporción bloqueada si la hay. */
+function initialCropRect(
+  width: number,
+  height: number,
+  aspect: number | null,
+): ImageRect {
+  const rect = defaultCropRect(width, height)
+
+  if (!aspect) {
+    return rect
+  }
+
+  return fitRectToAspect(rect, aspect, { x: 'center', y: 'center' }, width, height)
+}
 
 function createSnapshot(canvas: HTMLCanvasElement, label: string): HistorySnapshot {
   return {
@@ -57,7 +75,7 @@ function commitChange(
     canvas,
     snapshots,
     currentIndex: snapshots.length - 1,
-    cropRect: defaultCropRect(canvas.width, canvas.height),
+    cropRect: initialCropRect(canvas.width, canvas.height, state.cropAspect),
     error: null,
   }
 }
@@ -72,7 +90,11 @@ function restoreToIndex(state: EditorState, index: number): EditorState {
     ...state,
     canvas: cloneCanvas(snapshot.canvas),
     currentIndex: index,
-    cropRect: defaultCropRect(snapshot.canvas.width, snapshot.canvas.height),
+    cropRect: initialCropRect(
+      snapshot.canvas.width,
+      snapshot.canvas.height,
+      state.cropAspect,
+    ),
     error: null,
   }
 }
@@ -88,6 +110,7 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
         fileName: action.fileName,
         tool: 'crop',
         cropRect: defaultCropRect(action.canvas.width, action.canvas.height),
+        cropAspect: null,
         snapshots: [snapshot],
         currentIndex: 0,
         isProcessing: false,
@@ -99,7 +122,11 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       const next: EditorState = { ...state, tool: action.tool, error: null }
 
       if (action.tool === 'crop' && state.canvas && !state.cropRect) {
-        next.cropRect = defaultCropRect(state.canvas.width, state.canvas.height)
+        next.cropRect = initialCropRect(
+          state.canvas.width,
+          state.canvas.height,
+          state.cropAspect,
+        )
       }
 
       return next
@@ -107,6 +134,26 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
 
     case 'SET_CROP_RECT':
       return { ...state, cropRect: action.cropRect }
+
+    case 'SET_CROP_ASPECT': {
+      if (!action.aspect || !state.canvas || !state.cropRect) {
+        return { ...state, cropAspect: action.aspect }
+      }
+
+      // Al bloquear, la selección actual pasa a cumplir la proporción de inmediato.
+      return {
+        ...state,
+        cropAspect: action.aspect,
+        cropRect: fitRectToAspect(
+          state.cropRect,
+          action.aspect,
+          { x: 'left', y: 'top' },
+          state.canvas.width,
+          state.canvas.height,
+          'width',
+        ),
+      }
+    }
 
     case 'APPLY_CROP': {
       if (!state.canvas || !state.cropRect) {
@@ -176,6 +223,7 @@ const initialState: EditorState = {
   fileName: 'imagen',
   tool: 'crop',
   cropRect: null,
+  cropAspect: null,
   snapshots: [],
   currentIndex: -1,
   isProcessing: false,
@@ -197,6 +245,10 @@ export function useImageEditor() {
 
   const setCropRect = useCallback((cropRect: ImageRect) => {
     dispatch({ type: 'SET_CROP_RECT', cropRect })
+  }, [])
+
+  const setCropAspect = useCallback((aspect: number | null) => {
+    dispatch({ type: 'SET_CROP_ASPECT', aspect })
   }, [])
 
   const applyCrop = useCallback(() => {
@@ -258,6 +310,7 @@ export function useImageEditor() {
     fileName: state.fileName,
     tool: state.tool,
     cropRect: state.cropRect,
+    cropAspect: state.cropAspect,
     historyEntries,
     currentHistoryIndex: state.currentIndex,
     canUndo: state.currentIndex > 0,
@@ -268,6 +321,7 @@ export function useImageEditor() {
     loadFile,
     setTool,
     setCropRect,
+    setCropAspect,
     applyCrop,
     applyResize,
     removeBackground,

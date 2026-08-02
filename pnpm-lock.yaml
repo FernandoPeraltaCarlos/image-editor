@@ -14,6 +14,9 @@ importers:
       onnxruntime-web:
         specifier: 1.21.0
         version: 1.21.0
+      pica:
+        specifier: ^10.0.2
+        version: 10.0.2
       react:
         specifier: ^19.2.6
         version: 19.2.7
@@ -27,6 +30,9 @@ importers:
       '@types/node':
         specifier: ^24.12.3
         version: 24.13.2
+      '@types/pica':
+        specifier: ^9.0.5
+        version: 9.0.5
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.17
@@ -365,6 +371,9 @@ packages:
   '@types/node@24.13.2':
     resolution: {integrity: sha512-fRa09kZTgu8o71KFcDjUFuc7F+dEbZYZmkI0mg5YBTRs0yMKjYHsq/c0urDKeDb+D5qVgXOdFcuu+DZPKOITwA==}
 
+  '@types/pica@9.0.5':
+    resolution: {integrity: sha512-OSd4905yxFNtRanHuyyQAfC9AkxiYcbhlzP606Gl6rFcYRgq4vdLCZuYKokLQBihgrkNzyPkoeykvJDWcPjaCw==}
+
   '@types/react-dom@19.2.3':
     resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
     peerDependencies:
@@ -622,6 +631,9 @@ packages:
     resolution: {integrity: sha512-sepffkT8stwnIYbsMBpoCHJuJM5l98FUF2AnE07hfvE0m/qp3R586hw4jF4uadbhvg1ooIdzuu7CsfD2jzCaNA==}
     engines: {node: '>=18'}
 
+  glur@2.0.0:
+    resolution: {integrity: sha512-ZgJCXwuaQo4vnYG+VqtNIYV9kpNC/V/mafp0UcOMiLN/7eQVjCU+RDBLIwWXlmvwYMLFDf0IJrV/4qnM5VinCA==}
+
   guid-typescript@1.0.9:
     resolution: {integrity: sha512-Y8T4vYhEfwJOTbouREvG+3XDsjr8E3kIr7uf+JZ0BYloFsttiHU0WfvANVsR7TxNUJa/WpCnw/Ino/p+DeBhBQ==}
 
@@ -783,6 +795,9 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
+  multimath@3.0.0:
+    resolution: {integrity: sha512-U+s5xgbW55w5sbT9PeaJdEuxH5zL7wLwvp0MOJxXS8WhWDYnsTPIF3faeAltxkPNa+dDXmXs6gIiEpcCeE1YCA==}
+
   nanoid@3.3.15:
     resolution: {integrity: sha512-y7Wygv/7mEOvxTuEQDB8StXdMRBWf1kR/tlhAzBRUFkB2jfcLOAxO/SHmOO2zgz1pVgK29/kyupn059/bCHdjA==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -823,6 +838,9 @@ packages:
   path-key@3.1.1:
     resolution: {integrity: sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==}
     engines: {node: '>=8'}
+
+  pica@10.0.2:
+    resolution: {integrity: sha512-n7SniFK3eqssLjdBmUKRwvKQlO4KeQ1TX95fxexNRqt8gN0+DshoOlQ0K/wVjZ/ZRBQblBDxWWvn7E5KmoXcnQ==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -1289,6 +1307,8 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
+  '@types/pica@9.0.5': {}
+
   '@types/react-dom@19.2.3(@types/react@19.2.17)':
     dependencies:
       '@types/react': 19.2.17
@@ -1566,6 +1586,8 @@ snapshots:
 
   globals@17.6.0: {}
 
+  glur@2.0.0: {}
+
   guid-typescript@1.0.9: {}
 
   hermes-estree@0.25.1: {}
@@ -1680,6 +1702,10 @@ snapshots:
 
   ms@2.1.3: {}
 
+  multimath@3.0.0:
+    dependencies:
+      glur: 2.0.0
+
   nanoid@3.3.15: {}
 
   natural-compare@1.4.0: {}
@@ -1722,6 +1748,11 @@ snapshots:
   path-exists@4.0.0: {}
 
   path-key@3.1.1: {}
+
+  pica@10.0.2:
+    dependencies:
+      glur: 2.0.0
+      multimath: 3.0.0
 
   picocolors@1.1.1: {}
 

@@ -1,13 +1,21 @@
 import { useState } from 'react'
+import { isValidDimension, MAX_DIMENSION } from '../lib/resize'
 
 interface ResizePanelProps {
   width: number
   height: number
   disabled: boolean
+  isProcessing: boolean
   onApply: (width: number, height: number) => void
 }
 
-export function ResizePanel({ width, height, disabled, onApply }: ResizePanelProps) {
+export function ResizePanel({
+  width,
+  height,
+  disabled,
+  isProcessing,
+  onApply,
+}: ResizePanelProps) {
   const [nextWidth, setNextWidth] = useState(() => String(width))
   const [nextHeight, setNextHeight] = useState(() => String(height))
   const [locked, setLocked] = useState(true)
@@ -16,11 +24,12 @@ export function ResizePanel({ width, height, disabled, onApply }: ResizePanelPro
 
   const parsedWidth = Number.parseInt(nextWidth, 10)
   const parsedHeight = Number.parseInt(nextHeight, 10)
-  const isValid =
-    Number.isFinite(parsedWidth) &&
-    Number.isFinite(parsedHeight) &&
-    parsedWidth > 0 &&
-    parsedHeight > 0
+  const isValid = isValidDimension(parsedWidth) && isValidDimension(parsedHeight)
+  const outOfRange =
+    (Number.isFinite(parsedWidth) && parsedWidth > MAX_DIMENSION) ||
+    (Number.isFinite(parsedHeight) && parsedHeight > MAX_DIMENSION)
+  // Sin cambio de tamaño no hay nada que aplicar.
+  const unchanged = parsedWidth === width && parsedHeight === height
 
   const handleWidthChange = (value: string) => {
     setNextWidth(value)
@@ -58,6 +67,7 @@ export function ResizePanel({ width, height, disabled, onApply }: ResizePanelPro
           <input
             type="number"
             min={1}
+            max={MAX_DIMENSION}
             value={nextWidth}
             disabled={disabled}
             onChange={(event) => handleWidthChange(event.target.value)}
@@ -69,12 +79,19 @@ export function ResizePanel({ width, height, disabled, onApply }: ResizePanelPro
           <input
             type="number"
             min={1}
+            max={MAX_DIMENSION}
             value={nextHeight}
             disabled={disabled}
             onChange={(event) => handleHeightChange(event.target.value)}
           />
         </label>
       </div>
+
+      {outOfRange ? (
+        <p className="panel__warning">
+          El tamaño máximo es {MAX_DIMENSION} × {MAX_DIMENSION} px.
+        </p>
+      ) : null}
 
       <label className="field field--checkbox">
         <input
@@ -89,10 +106,10 @@ export function ResizePanel({ width, height, disabled, onApply }: ResizePanelPro
       <button
         type="button"
         className="primary-button"
-        disabled={disabled || !isValid}
+        disabled={disabled || !isValid || unchanged}
         onClick={() => onApply(parsedWidth, parsedHeight)}
       >
-        Aplicar tamaño
+        {isProcessing ? 'Redimensionando…' : 'Aplicar tamaño'}
       </button>
     </div>
   )

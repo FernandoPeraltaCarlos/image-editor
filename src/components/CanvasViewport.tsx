@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CropOverlay } from './CropOverlay'
+import { resizeCanvasPreview } from '../lib/resize'
 import type { ImageRect } from '../lib/types'
 
 interface CanvasViewportProps {
@@ -30,8 +31,18 @@ export function CanvasViewport({
       return
     }
 
+    // Las notificaciones del observer se agrupan por frame: mientras se
+    // arrastra el borde de la ventana evita rehacer la vista previa (que
+    // reescala la imagen completa) decenas de veces por segundo.
+    let frame = 0
     const observer = new ResizeObserver(() => {
-      setAvailableWidth(container.clientWidth)
+      if (frame) {
+        return
+      }
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        setAvailableWidth(container.clientWidth)
+      })
     })
 
     observer.observe(container)
@@ -39,6 +50,9 @@ export function CanvasViewport({
 
     return () => {
       observer.disconnect()
+      if (frame) {
+        cancelAnimationFrame(frame)
+      }
     }
   }, [])
 
@@ -53,18 +67,37 @@ export function CanvasViewport({
       return
     }
 
-    const width = Math.round(canvas.width * scale)
-    const height = Math.round(canvas.height * scale)
-    displayCanvas.width = width
-    displayCanvas.height = height
+    const cssWidth = Math.round(canvas.width * scale)
+    const cssHeight = Math.round(canvas.height * scale)
+
+    // El backing store se dimensiona en píxeles físicos para que la vista
+    // previa no se vea borrosa en pantallas HiDPI; el tamaño CSS (y con él la
+    // geometría del overlay de recorte) no cambia. Se limita a la resolución
+    // del original: ampliar el backing store más allá no aporta detalle y
+    // cuadruplica la memoria en pantallas 2×.
+    const dpr = Math.min(
+      window.devicePixelRatio || 1,
+      cssWidth > 0 ? canvas.width / cssWidth : 1,
+      cssHeight > 0 ? canvas.height / cssHeight : 1,
+    )
+    const deviceWidth = Math.max(1, Math.round(cssWidth * dpr))
+    const deviceHeight = Math.max(1, Math.round(cssHeight * dpr))
+
+    displayCanvas.width = deviceWidth
+    displayCanvas.height = deviceHeight
+    displayCanvas.style.width = `${cssWidth}px`
+    displayCanvas.style.height = `${cssHeight}px`
 
     const ctx = displayCanvas.getContext('2d')
     if (!ctx) {
       return
     }
 
-    ctx.clearRect(0, 0, width, height)
-    ctx.drawImage(canvas, 0, 0, width, height)
+    ctx.clearRect(0, 0, deviceWidth, deviceHeight)
+    // resizeCanvasPreview reduce por pasos con suavizado de alta calidad:
+    // evita el aliasing de un único drawImage al encoger imágenes grandes.
+    const scaled = resizeCanvasPreview(canvas, deviceWidth, deviceHeight)
+    ctx.drawImage(scaled, 0, 0)
   }, [canvas, scale])
 
   return (

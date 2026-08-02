@@ -1,6 +1,6 @@
-import { useCallback, useReducer, useState } from 'react'
+import { useCallback, useReducer, useRef, useState } from 'react'
 import { defaultCropRect, cropCanvas, fitRectToAspect } from '../lib/crop'
-import { cloneCanvas, getCanvasDimensions, loadImageFromFile } from '../lib/imageCanvas'
+import { getCanvasDimensions, loadImageFromFile } from '../lib/imageCanvas'
 import {
   removeBackgroundFromCanvas,
   type RemoveBackgroundProgress,
@@ -8,10 +8,23 @@ import {
 import { resizeCanvas } from '../lib/resize'
 import type { HistoryEntry, ImageRect, Tool } from '../lib/types'
 
+/**
+ * Convención de inmutabilidad: los canvases confirmados nunca se mutan. Todas
+ * las operaciones (recorte, redimensionado, quitar fondo…) producen un canvas
+ * nuevo, así que el historial puede compartir referencias con `state.canvas`
+ * sin clonar (un canvas RGBA grande puede ocupar cientos de MB).
+ */
 interface HistorySnapshot {
   canvas: HTMLCanvasElement
   label: string
 }
+
+/**
+ * Tope de entradas del historial para acotar la memoria. Al superarlo se
+ * conserva siempre la primera entrada (la imagen original, que alimenta
+ * «Restaurar original») y se descartan las más antiguas del resto.
+ */
+const MAX_HISTORY = 20
 
 interface EditorState {
   canvas: HTMLCanvasElement | null
@@ -32,10 +45,11 @@ type EditorAction =
   | { type: 'SET_CROP_RECT'; cropRect: ImageRect }
   | { type: 'SET_CROP_ASPECT'; aspect: number | null }
   | { type: 'APPLY_CROP' }
-  | { type: 'APPLY_RESIZE'; width: number; height: number }
-  | { type: 'REMOVE_BACKGROUND_START' }
-  | { type: 'REMOVE_BACKGROUND_SUCCESS'; canvas: HTMLCanvasElement }
-  | { type: 'REMOVE_BACKGROUND_ERROR'; error: string }
+  // Operaciones asíncronas (redimensionar, quitar fondo…): el trabajo pesado
+  // ocurre fuera del reducer y aquí solo se registra el resultado.
+  | { type: 'PROCESS_START' }
+  | { type: 'PROCESS_SUCCESS'; canvas: HTMLCanvasElement; label: string }
+  | { type: 'PROCESS_ERROR'; error: string }
   | { type: 'UNDO' }
   | { type: 'RESTORE_TO_INDEX'; index: number }
   | { type: 'CLEAR_ERROR' }
@@ -55,20 +69,17 @@ function initialCropRect(
   return fitRectToAspect(rect, aspect, { x: 'center', y: 'center' }, width, height)
 }
 
-function createSnapshot(canvas: HTMLCanvasElement, label: string): HistorySnapshot {
-  return {
-    canvas: cloneCanvas(canvas),
-    label,
-  }
-}
-
 function commitChange(
   state: EditorState,
   canvas: HTMLCanvasElement,
   label: string,
 ): EditorState {
-  const snapshots = state.snapshots.slice(0, state.currentIndex + 1)
-  snapshots.push(createSnapshot(canvas, label))
+  let snapshots = state.snapshots.slice(0, state.currentIndex + 1)
+  snapshots.push({ canvas, label })
+
+  if (snapshots.length > MAX_HISTORY) {
+    snapshots = [snapshots[0], ...snapshots.slice(snapshots.length - (MAX_HISTORY - 1))]
+  }
 
   return {
     ...state,
@@ -88,7 +99,7 @@ function restoreToIndex(state: EditorState, index: number): EditorState {
 
   return {
     ...state,
-    canvas: cloneCanvas(snapshot.canvas),
+    canvas: snapshot.canvas,
     currentIndex: index,
     cropRect: initialCropRect(
       snapshot.canvas.width,
@@ -102,16 +113,14 @@ function restoreToIndex(state: EditorState, index: number): EditorState {
 function reducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case 'LOAD_IMAGE': {
-      const snapshot = createSnapshot(action.canvas, 'Imagen original')
-
       return {
         ...state,
-        canvas: cloneCanvas(action.canvas),
+        canvas: action.canvas,
         fileName: action.fileName,
         tool: 'crop',
         cropRect: defaultCropRect(action.canvas.width, action.canvas.height),
         cropAspect: null,
-        snapshots: [snapshot],
+        snapshots: [{ canvas: action.canvas, label: 'Imagen original' }],
         currentIndex: 0,
         isProcessing: false,
         error: null,
@@ -164,30 +173,21 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return commitChange(state, cropped, 'Recorte')
     }
 
-    case 'APPLY_RESIZE': {
-      if (!state.canvas) {
-        return state
-      }
-
-      const resized = resizeCanvas(state.canvas, action.width, action.height)
-      return commitChange(state, resized, 'Redimensionar')
-    }
-
-    case 'REMOVE_BACKGROUND_START':
+    case 'PROCESS_START':
       return { ...state, isProcessing: true, error: null }
 
-    case 'REMOVE_BACKGROUND_SUCCESS': {
+    case 'PROCESS_SUCCESS': {
       if (!state.canvas) {
         return { ...state, isProcessing: false }
       }
 
       return {
-        ...commitChange(state, action.canvas, 'Fondo eliminado'),
+        ...commitChange(state, action.canvas, action.label),
         isProcessing: false,
       }
     }
 
-    case 'REMOVE_BACKGROUND_ERROR':
+    case 'PROCESS_ERROR':
       return { ...state, isProcessing: false, error: action.error }
 
     case 'UNDO': {
@@ -234,8 +234,14 @@ export function useImageEditor() {
   const [state, dispatch] = useReducer(reducer, initialState)
   const [bgProgress, setBgProgress] = useState<RemoveBackgroundProgress | null>(null)
 
+  // Generación de sesión: se incrementa al cargar una imagen nueva. Las
+  // operaciones asíncronas la capturan al empezar y descartan su resultado si
+  // cambió, para no cometer resultados de una imagen anterior sobre la nueva.
+  const sessionRef = useRef(0)
+
   const loadFile = useCallback(async (file: File) => {
     const canvas = await loadImageFromFile(file)
+    sessionRef.current += 1
     dispatch({ type: 'LOAD_IMAGE', canvas, fileName: file.name })
   }, [])
 
@@ -255,31 +261,67 @@ export function useImageEditor() {
     dispatch({ type: 'APPLY_CROP' })
   }, [])
 
-  const applyResize = useCallback((width: number, height: number) => {
-    dispatch({ type: 'APPLY_RESIZE', width, height })
-  }, [])
+  const applyResize = useCallback(
+    async (width: number, height: number) => {
+      if (!state.canvas || state.isProcessing) {
+        return
+      }
+
+      // Sin cambios de tamaño no hay nada que hacer (evita entradas de
+      // historial duplicadas).
+      if (width === state.canvas.width && height === state.canvas.height) {
+        return
+      }
+
+      const session = sessionRef.current
+      dispatch({ type: 'PROCESS_START' })
+
+      try {
+        const result = await resizeCanvas(state.canvas, width, height)
+        if (session !== sessionRef.current) {
+          return
+        }
+        dispatch({ type: 'PROCESS_SUCCESS', canvas: result, label: 'Redimensionar' })
+      } catch (error) {
+        if (session !== sessionRef.current) {
+          return
+        }
+        const message =
+          error instanceof Error ? error.message : 'No se pudo redimensionar la imagen'
+        dispatch({ type: 'PROCESS_ERROR', error: message })
+      }
+    },
+    [state.canvas, state.isProcessing],
+  )
 
   const removeBackground = useCallback(async () => {
-    if (!state.canvas) {
+    if (!state.canvas || state.isProcessing) {
       return
     }
 
-    dispatch({ type: 'REMOVE_BACKGROUND_START' })
+    const session = sessionRef.current
+    dispatch({ type: 'PROCESS_START' })
     setBgProgress(null)
 
     try {
       const result = await removeBackgroundFromCanvas(state.canvas, {
         onProgress: setBgProgress,
       })
-      dispatch({ type: 'REMOVE_BACKGROUND_SUCCESS', canvas: result })
+      if (session !== sessionRef.current) {
+        return
+      }
+      dispatch({ type: 'PROCESS_SUCCESS', canvas: result, label: 'Fondo eliminado' })
     } catch (error) {
+      if (session !== sessionRef.current) {
+        return
+      }
       const message =
         error instanceof Error ? error.message : 'No se pudo eliminar el fondo'
-      dispatch({ type: 'REMOVE_BACKGROUND_ERROR', error: message })
+      dispatch({ type: 'PROCESS_ERROR', error: message })
     } finally {
       setBgProgress(null)
     }
-  }, [state.canvas])
+  }, [state.canvas, state.isProcessing])
 
   const undo = useCallback(() => {
     dispatch({ type: 'UNDO' })

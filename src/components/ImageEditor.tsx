@@ -86,6 +86,7 @@ export function ImageEditor() {
           <button
             type="button"
             className="secondary-button"
+            disabled={isProcessing}
             onClick={() => fileInputRef.current?.click()}
           >
             Subir imagen
@@ -176,6 +177,7 @@ export function ImageEditor() {
                   width={dimensions.width}
                   height={dimensions.height}
                   disabled={isProcessing}
+                  isProcessing={isProcessing}
                   onApply={applyResize}
                 />
               ) : null}
